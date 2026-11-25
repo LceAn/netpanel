@@ -1,0 +1,7 @@
+# 统一用 LF，Windows 脚本保持 CRLF
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.png binary
+*.jpg binary
+*.ico binary

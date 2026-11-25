@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<script>
+var selState = new Array(0,0,0,0,0,0,0,0);
+var trunk_info = new Array("", " (LAG1)", " (LAG2)");
+var portNumber = 8;
+var portdisableid = [0,1,1,1,1,1,1,1,1,0]
+var bcInfo = new Array(
+0,0,0,
+0,0,0,
+0,0,0,
+0,0,0,
+0,0,0,
+0,0,0,
+0,0,0,
+0,0,0,
+0);
+var tip = "";
+</script>
+ <head> <meta http-equiv=Content-Type content="text/html; charset=utf-8"> <script>document.write(top.Abbrev)</script> <script type=text/javascript>function portlist_disabled(){for(var s=0,s=1;s<=portNumber;s++)0==portdisableid[s]&&($id("sel_"+s).disabled="disabled");return!0}incCss("main.css"),incCss("help.css"),incJs("ui.js"),incJs("help.js"),incJs("tips.js"),incJs("QosBandWidthControlRpm.js")</script> </head> <body> <div id=div_tip_mask class=TIP_MASK> <div id=div_tip_svr class=TIP><span id=sp_tip_svr class=TIP_CONTENT></span></div> </div> <fieldset> <legend>带宽控制</legend> <form name=qos_bandwidth_set method=post action=qos_bandwidth_set.cgi> <div id=div_sec_title> <table class=BORDER> <tr class=TABLE_HEAD> <td class=TD_FIRST_COL width=50px><b>选择</b></td> <td class=TD_FIRST_COL width=120px><b>端口</b></td> <td class=TD_FIRST_COL width=120px><b>入口限速(Kbps)</b></td> <td class=TD_FIRST_COL width=120px><b>出口限速(Kbps)</b></td> </tr> <tr class=TABLE_HEAD> <td><input type=checkbox id=selAll name=selAll onclick=doSelAll()></td> <td></td> <td><input maxlength=7 name=igrRate id=igrRate size=8><br>(0-1000000)</td> <td><input maxlength=7 name=egrRate id=egrRate size=8><br>(0-1000000)</td> </tr> <script>var lagPort,ingRate,egrRate;for(i=1;i<=portNumber;i++)ingRate=bcInfo[3*(i-1)]?bcInfo[3*(i-1)]:"无限制",egrRate=bcInfo[3*(i-1)+1]?bcInfo[3*(i-1)+1]:"无限制",lagPort="端口 "+i+trunk_info[bcInfo[3*(i-1)+2]],docW("<tr>"),docW("<td><input type=checkbox name=sel_"+i+" id=sel_"+i+' onClick="do_check('+i+');" value=1></td>'),docW("<td>"+lagPort+"</td>"),docW("<td>"+ingRate+"</td>"),docW("<td>"+egrRate+"</td>");portlist_disabled()</script> </table> <table> <tr> <td class=BTN_WRAPPER> <a class=BTN> <input type=submit value=应用 name=applay class=BTN_NORMAL_BTN onclick="return do_submit()"> </a> </td> <td class=BTN_WRAPPER> <a class=BTN> <input type=button class=BTN_NORMAL_BTN value=帮助 name=help onclick='doShowHelp("div_sec_title","div_help_lan_svr","QosBandWidthControlHelpRpm.htm")'> </a> </td> </tr> </table> <input type=hidden id=token name=token> </div> </form> <table class=BOTTOM_LINE> <tr><td class=BOTTOM_LINE> </tr> <tr><td><span id=t_cantion_title class=BOLDER>注意：</span></tr> <tr><td><span class=NORMAL id=t_qos_strom1>1、限速配置为0表示禁用端口限速</span></tr> </table> </fieldset> <script>ShowHelp('<span class="HELP_TITLE" id="t_help_title">带宽控制</span> ')</script>   <script>window.onload=function(){new Drag("div_help_lan_svr","div_help_lan_svr")},""!=tip&&(ShowTips("sp_tip_svr",tip),startDownScroll("div_tip_svr"))</script> 
