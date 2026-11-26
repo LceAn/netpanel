@@ -302,6 +302,11 @@ test('命令行: --url 自动选到新适配器; 写操作因为是只读适配�
   assert.match(write.err, /不支持操作|不支持/);
   const ops = await cli([...url, 'ops']);
   assert.match(ops.out, /\(空\)/);
-  const adapters = await cli(['--url', mock.url, '--data-dir', join(tmpdir(), `netpanel-cli-x-${Date.now()}`), 'adapters']);
-  assert.match(adapters.out, /tplink-json\s+TP-LINK JetStream 新版 Web 界面\s+TP-LINK\s+experimental/);
+  const scratch = mkdtempSync(join(tmpdir(), 'netpanel-cli-')); // adapters 命令要打开面板, 给它一个用完就删的数据目录
+  try {
+    const adapters = await cli(['--url', mock.url, '--data-dir', scratch, 'adapters']);
+    assert.match(adapters.out, /tplink-json\s+TP-LINK JetStream 新版 Web 界面\s+TP-LINK\s+experimental/);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });
