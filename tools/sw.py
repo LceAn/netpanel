@@ -17,7 +17,7 @@ import urllib.request
 
 from enc import security_encode
 
-BASE = os.environ.get("SW_BASE", "http://10.0.0.239").rstrip("/")
+BASE = os.environ.get("SW_BASE", "").rstrip("/")  # 交换机地址必须显式给出, 不设默认值
 SESSION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".session.json")
 
 
@@ -28,8 +28,10 @@ class SwitchError(Exception):
 class Switch:
     """对交换机 Web API 的最小只读客户端。"""
 
-    def __init__(self, base=BASE):
-        self.base = base.rstrip("/")
+    def __init__(self, base=None):
+        self.base = (base or BASE).rstrip("/")
+        if not self.base:
+            raise SystemExit("请先设置环境变量 SW_BASE (交换机地址, 例如 http://192.168.1.1)")
         self.jar = http.cookiejar.CookieJar()
         # 直连局域网设备，必须绕开系统代理
         self.opener = urllib.request.build_opener(
@@ -73,9 +75,10 @@ class Switch:
         if os.path.exists(SESSION_FILE):
             try:
                 sid = json.load(open(SESSION_FILE, encoding="utf-8"))["SessionID"]
+                host = urllib.parse.urlparse(self.base).hostname
                 self.jar.set_cookie(http.cookiejar.Cookie(
                     version=0, name="SessionID", value=sid, port=None, port_specified=False,
-                    domain="10.0.0.239", domain_specified=True, domain_initial_dot=False,
+                    domain=host, domain_specified=True, domain_initial_dot=False,
                     path="/", path_specified=True, secure=False, expires=None,
                     discard=True, comment=None, comment_url=None, rest={"HttpOnly": None}))
             except Exception:

@@ -5,7 +5,8 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { test } from 'node:test';
-import { SwitchClient, SwitchError, securityEncode } from '../lib/switch.mjs';
+import { RpmClient as SwitchClient, securityEncode } from '../src/adapters/tplink-rpm/client.mjs';
+import { SwitchError } from '../src/core/errors.mjs';
 
 const LOGIN_OK = '<script>\nvar logonInfo = new Array(\n0,\n0,0);\n</script>\n';
 const LOGIN_PAGE = '<script>\nvar logonInfo = new Array(\n5,\n0,0);\n</script>\n';
@@ -253,6 +254,8 @@ mac_info:[
     assert.equal(res.vars.mac_ds.macNum, 1);
     assert.equal(res.vars.mac_ds.mac_info[0].mac, 'AA:BB:CC:DD:EE:FF');
     assert.equal(res.vars.mac_ds.mac_info[0].port, 3);
+    // 适配器负责把返回页里的变量整理成规范模型
+    assert.deepEqual(res.data, { qvlan: true, results: [{ mac: 'AA:BB:CC:DD:EE:FF', vid: 20, port: 3 }] });
   } finally {
     await sw.close();
   }
@@ -264,5 +267,5 @@ test('连接不上交换机 → OFFLINE; 地址只接受 http', async () => {
   await sw.close();
   const err = await new SwitchClient({ baseUrl: url, username: 'u', password: 'p', maxRetries: 1 }).login().catch((e) => e);
   assert.equal(err.code, 'OFFLINE');
-  assert.throws(() => new SwitchClient({ baseUrl: 'https://10.0.0.239', username: 'u', password: 'p' }), /http/);
+  assert.throws(() => new SwitchClient({ baseUrl: 'https://192.168.50.20', username: 'u', password: 'p' }), /http/);
 });

@@ -1,0 +1,20 @@
+var pvid_ds = {
+state:1,
+portNum:8,
+vids:[
+1
+],
+count:1,
+mbrs:[
+0xFF
+],
+pvids:[
+1,1,1,1,1,1,1,1
+],
+lagIds:[
+0,0,0,0,0,0,0,0
+],
+lagMbrs:[
+0,0x0,0x0
+]
+};var tip = "";

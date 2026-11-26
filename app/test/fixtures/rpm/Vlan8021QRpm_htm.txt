@@ -1,0 +1,24 @@
+var qvlan_ds = {
+state:1,
+portNum:8,
+vids:[
+1
+],
+count:1,
+maxVids:32,
+names:[
+'Default'
+],
+tagMbrs:[
+0x0
+],
+untagMbrs:[
+0xFF
+],
+lagIds:[
+0,0,0,0,0,0,0,0
+],
+lagMbrs:[
+0,0x0,0x0
+]
+};var tip = "";

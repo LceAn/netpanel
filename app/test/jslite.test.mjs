@@ -1,12 +1,15 @@
-// 用抓下来的原厂页面做夹具, 验证 jslite 解析器对每个页面都能解析出变量。
+// 用合成夹具 (格式与真机页面首个 <script> 的数据声明一致) 验证 jslite 解析器对每个页面都能解析出变量。
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { parseVars, scripts } from '../lib/jslite.mjs';
+import { parseVars, scripts } from '../src/core/jslite.mjs';
 
-const FIXTURES = fileURLToPath(new URL('../../_stock/pages/', import.meta.url));
+const HERE = fileURLToPath(new URL('.', import.meta.url));
+// 合成夹具: 只含设备页面首个 <script> 里的数据声明, 身份信息 (MAC / IP / 用户名) 都是虚构的
+const FIXTURES = join(HERE, 'fixtures', 'rpm'); // HERE 以路径分隔符结尾
+
 const files = readdirSync(FIXTURES).filter((f) => f.endsWith('.txt'));
 
 test('夹具目录存在且有页面', () => {
@@ -15,8 +18,7 @@ test('夹具目录存在且有页面', () => {
 
 for (const file of files) {
   test(`解析 ${file}`, () => {
-    const html = readFileSync(join(FIXTURES, file), 'utf8');
-    const vars = parseVars(scripts(html)[0] ?? '');
+    const vars = parseVars(readFileSync(join(FIXTURES, file), 'utf8'));
     assert.ok('tip' in vars, '应有 tip 变量');
     assert.equal(typeof vars.tip, 'string');
   });

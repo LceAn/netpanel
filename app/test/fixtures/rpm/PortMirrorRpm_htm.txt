@@ -1,0 +1,10 @@
+var max_port_num = 8;
+var MirrEn = 0;
+var MirrPort = 0;
+var porttrunkid = [0,0,0,0,0,0,0,0,0,0];
+var MirrMode = 0;
+var mirrMask = 0;
+var mirr_info= {
+ingress:[0,0,0,0,0,0,0,0,0,0],
+egress:[0,0,0,0,0,0,0,0,0,0]};
+var tip = "";

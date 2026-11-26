@@ -1,0 +1,19 @@
+var manage_vlan = 1;
+var vlan_type = 2;
+var ip_ds = {
+state:1,
+ipStr:[
+"192.168.2.20"
+],
+netmaskStr:[
+"255.255.255.0"
+],
+gatewayStr:[
+"192.168.2.1"
+],
+dnsEnable:1,
+dnsStr:[
+"192.168.2.1"
+]
+};
+var tip = "";

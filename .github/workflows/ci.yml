@@ -18,7 +18,42 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-      # 零依赖：不需要 npm install，直接跑 node --test
-      - name: 运行单元测试
+      # 零依赖：不需要 npm install，直接跑 node --test。
+      # 测试里会起进程内的模拟交换机和临时端口的面板 (端到端、命令行、HTTP 接口)，全部只监听 127.0.0.1
+      - name: 运行测试
         working-directory: app
         run: node --test
+      - name: 命令行能启动
+        working-directory: app
+        run: node bin/switchctl.mjs help | head -n 3
+      - name: 模拟交换机能启动 (演示 / 开发用)
+        working-directory: app
+        run: |
+          node scripts/mock-switch.mjs 8699 &
+          node scripts/mock-json-switch.mjs 8698 &
+          sleep 2
+          curl -fsS -o /dev/null http://127.0.0.1:8699/
+          curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' -d '{}' http://127.0.0.1:8698/data/version.json
+
+  docker:
+    name: Docker 镜像
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: 构建镜像 (不推送)
+        uses: docker/build-push-action@v6
+        with:
+          context: app
+          push: false
+          tags: netpanel:ci
+          load: true
+      - name: 容器能启动并响应
+        run: |
+          docker run -d --name netpanel-ci -p 8208:8208 netpanel:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8208/api/status; then exit 0; fi
+            sleep 1
+          done
+          docker logs netpanel-ci
+          exit 1

@@ -1,0 +1,29 @@
+var info_ds = {
+descriStr:[
+"TL-SG2008D"
+],
+macStr:[
+"02:00:5E:01:02:03"
+],
+ipStr:[
+"192.168.2.20"
+],
+netmaskStr:[
+"255.255.255.0"
+],
+gatewayStr:[
+"192.168.2.1"
+],
+firmwareStr:[
+"1.8.1 Build 20260401 Rel.61276"
+],
+productModel:[
+"TL-SG2008D"
+],
+hardwareStr:[
+"3.0"
+]
+};
+var mngt_switch = 1;
+var support_cloud = 1;
+var tip = "";

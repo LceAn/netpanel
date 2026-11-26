@@ -1,7 +1,19 @@
+# -*- coding: utf-8 -*-
 """用独立的方式核对面板: 直接从交换机抓原厂页面 (不经过面板的解析代码), 与面板接口返回的数据逐项比对。
 
 只读, 不会向交换机发送任何写请求。
-用法: python verify_panel.py   (需要环境变量 SW_USER / SW_PASS, 即交换机的账号密码)
+
+需要的环境变量:
+    SW_BASE      交换机地址, 例如 http://192.168.1.1
+    SW_USER      交换机的管理账号
+    SW_PASS      交换机的密码
+    PANEL_USER   面板自己的管理员账号 (面板 2.x 起有自己的账号, 不再借用交换机的账号)
+    PANEL_PASS   面板密码
+可选:
+    PANEL_URL     面板地址, 默认 http://127.0.0.1:8208
+    PANEL_DEVICE  要核对的那台设备在面板里的名称或 id; 不填时要求面板里只绑定了一台设备
+
+用法: python verify_panel.py
 """
 
 import http.cookiejar
@@ -9,29 +21,57 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
 
 from sw import Switch
 
 PANEL = os.environ.get("PANEL_URL", "http://127.0.0.1:8208")
+CSRF = {"X-Requested-With": "netpanel"}  # 面板用这个请求头挡跨站请求
 
 
 # ── 取数 ──────────────────────────────────────────────────────────────
 
-def panel_login(user, pwd):
+def panel_client():
     jar = http.cookiejar.CookieJar()
-    op = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar))
-    body = json.dumps({"username": user, "password": pwd}).encode()
-    req = urllib.request.Request(f"{PANEL}/api/login", data=body, headers={"Content-Type": "application/json", "X-Requested-With": "switch-panel"})
-    with op.open(req, timeout=20) as r:
-        assert r.status == 200, "面板登录失败"
-    return op
+    # 面板在本机或局域网里, 绕开系统代理
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPCookieProcessor(jar))
 
 
-def panel(op, path):
-    req = urllib.request.Request(f"{PANEL}{path}", headers={"X-Requested-With": "switch-panel"})
-    with op.open(req, timeout=60) as r:
-        return json.loads(r.read().decode("utf-8"))
+def panel(op, path, body=None):
+    headers = dict(CSRF)
+    data = None
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+        data = json.dumps(body).encode()
+    req = urllib.request.Request(f"{PANEL}{path}", data=data, headers=headers)
+    try:
+        with op.open(req, timeout=90) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise SystemExit(f"面板接口 {path} 返回 {e.code}: {e.read().decode('utf-8', 'replace')[:300]}")
+
+
+def panel_login(op):
+    user, pwd = os.environ["PANEL_USER"], os.environ["PANEL_PASS"]
+    res = panel(op, "/api/login", {"username": user, "password": pwd})
+    if not res.get("ok"):
+        raise SystemExit(f"面板登录失败: {res}")
+
+
+def panel_device(op):
+    """要核对的设备: 按 PANEL_DEVICE 找名称或 id; 不指定时面板里只能有一台。"""
+    want = os.environ.get("PANEL_DEVICE")
+    devices = panel(op, "/api/devices")["devices"]
+    if not want:
+        if len(devices) != 1:
+            names = ", ".join(d["name"] for d in devices) or "(无)"
+            raise SystemExit(f"面板里绑定了 {len(devices)} 台设备 ({names}), 请用 PANEL_DEVICE 指定要核对的那一台")
+        return devices[0]
+    hit = next((d for d in devices if d["id"] == want or d["name"].lower() == want.lower()), None)
+    if not hit:
+        raise SystemExit(f"面板里找不到设备「{want}」")
+    return hit
 
 
 # ── 从原厂页面的 JS 里取值 (独立于面板的解析实现) ─────────────────────
@@ -100,25 +140,29 @@ class Report:
 
 def main():
     sys.stdout.reconfigure(encoding="utf-8")
-    user, pwd = os.environ["SW_USER"], os.environ["SW_PASS"]
     r = Report()
 
     # 1) 直接从交换机抓原厂页面
     sw = Switch()
-    sw.ensure_session(user, pwd)
+    sw.ensure_session(os.environ["SW_USER"], os.environ["SW_PASS"])
     names = ["MainRpm", "PortSettingRpm", "PortStatisticsRpm", "SystemInfoRpm", "cloud", "Vlan8021QRpm",
              "PortTrunkRpm", "QosStormControlRpm", "IpSettingRpm", "LoopPreventionRpm", "QosBasicRpm"]
     raw = {name: sw.get(f"/{name}.htm") for name in names}
     tid = var(sw.get("/"), "g_tid")
     detail = sw.get(f"/PortStatisticsAllRpm.htm?port=5&token={tid}")  # 原厂用 0 起始下标: 5 → 6 号口
 
-    # 2) 面板接口
-    pop = panel_login(user, pwd)
-    pg = {}  # 面板单次最多读 8 个页面, 分两次
-    pg.update(panel(pop, "/api/pages?keys=ports,stats,system,cloud,vlan8021q,lag,qosStorm,ip"))
-    pg.update(panel(pop, "/api/pages?keys=loop,qosBasic"))
-    over = panel(pop, "/api/overview")["data"]
-    det = panel(pop, "/api/stats/6")
+    # 2) 面板接口 (面板自己的账号; 设备地址不一定等于 SW_BASE, 所以确认一下是同一台)
+    pop = panel_client()
+    panel_login(pop)
+    device = panel_device(pop)
+    base = f"/api/devices/{device['id']}"
+    over = panel(pop, f"{base}/overview?live=1")["data"]  # live: 让面板此刻去交换机读, 而不是给缓存
+    if over["device"]["mac"] and raw["MainRpm"] and strings(raw["MainRpm"], "macStr")[0].lower() != over["device"]["mac"].lower():
+        raise SystemExit(f"面板里的「{device['name']}」({device['url']}) 与 SW_BASE 不是同一台交换机 "
+                         f"(MAC {over['device']['mac']} vs {strings(raw['MainRpm'], 'macStr')[0]})")
+    pg = panel(pop, f"{base}/pages?keys=ports,stats,system,cloud,vlan8021q,lag,qosStorm,ip")
+    pg.update(panel(pop, f"{base}/pages?keys=loop,qosBasic"))
+    det = panel(pop, f"{base}/stats/6")
     main_again = sw.get("/MainRpm.htm")  # 紧接着再抓一次原厂首页, 给实时速率做参照
 
     m = raw["MainRpm"]

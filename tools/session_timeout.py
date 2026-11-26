@@ -3,7 +3,7 @@
 1. 同一账号能否多会话并存 (决定面板多浏览器登录时会不会互踢)
 2. 空闲多久会话过期
 
-用法: python session_timeout.py   (需要环境变量 SW_USER / SW_PASS)
+用法: python session_timeout.py   (需要环境变量 SW_BASE / SW_USER / SW_PASS)
 """
 
 import http.cookiejar
@@ -15,7 +15,9 @@ import urllib.request
 
 from enc import security_encode
 
-BASE = os.environ.get("SW_BASE", "http://10.0.0.239")
+BASE = os.environ.get("SW_BASE", "").rstrip("/")  # 交换机地址必须显式给出, 不设默认值
+if not BASE:
+    sys.exit("请先设置环境变量 SW_BASE (交换机地址, 例如 http://192.168.1.1)")
 GAPS = [60, 180, 300, 480, 900, 1800]  # 每轮空闲秒数, 逐级加大
 
 

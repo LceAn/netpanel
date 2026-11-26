@@ -1,0 +1,8 @@
+# 构建镜像时不需要的文件 (面板运行只用到 bin/ src/ web/ 和根目录的 server.mjs)
+data/
+.next-test-data/
+node_modules/
+*.log
+config.json
+test/*
+!test/fixtures

@@ -1,0 +1,6 @@
+var mtu_ds = {
+state:0,
+portNum:8,
+uplinkPort:1
+};
+var tip = "";

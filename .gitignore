@@ -7,6 +7,9 @@ __pycache__/
 config.json
 *.cfg
 
+# 面板的运行时数据：设备表 (含加密后的设备密码)、密钥文件、面板账号、设置。任何情况下都不要提交
+app/data/
+
 # 探测脚本的会话缓存与日志
 tools/.session.json
 tools/*.session.json

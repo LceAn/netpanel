@@ -1,0 +1,5 @@
+var mngt_switch="1";
+var cloud_type="0";
+var tums_server="";
+var tums_port="60445";
+var tip = "";

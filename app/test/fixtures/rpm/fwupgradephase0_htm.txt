@@ -1,0 +1,14 @@
+var upgrade_ds = {
+current_firmwareStr:[
+"1.8.1 Build 20260401 Rel.61276"
+],
+current_hardwareStr:[
+"3.0"
+]
+};var upgConflict="0";
+var check_fw_file_flag="0";
+var onlineUpgrade_flag=1;
+var hasNewFirmware="0";
+var new_firmwareStr="";
+var release_log="";
+var tip="";

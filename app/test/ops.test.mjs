@@ -1,18 +1,22 @@
 // 写操作白名单: 校验逻辑与组包格式。全部离线, 不会碰真实交换机。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildOp, validateOp, OPS, TID } from '../lib/ops.mjs';
-import { PAGES, uptimeSeconds } from '../lib/pages.mjs';
-import { securityEncode } from '../lib/switch.mjs';
-import { parseVars, scripts } from '../lib/jslite.mjs';
+import { validateOp, OPS } from '../src/core/ops.mjs';
+import { buildOp, supportsOp, TID, BUILD } from '../src/adapters/tplink-rpm/ops.mjs';
+import { PAGES, uptimeSeconds } from '../src/adapters/tplink-rpm/pages.mjs';
+import { securityEncode } from '../src/adapters/tplink-rpm/client.mjs';
+import { parseVars } from '../src/core/jslite.mjs';
 import { readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const FIXTURES = fileURLToPath(new URL('../../_stock/pages/', import.meta.url));
+const HERE = fileURLToPath(new URL('.', import.meta.url));
+// 合成夹具: 只含设备页面首个 <script> 里的数据声明, 身份信息 (MAC / IP / 用户名) 都是虚构的
+const FIXTURES = join(HERE, 'fixtures', 'rpm'); // HERE 以路径分隔符结尾
+
 const ctx = (key) => {
   const page = PAGES[key];
-  return page.model(parseVars(scripts(readFileSync(join(FIXTURES, basename(page.path).replace('.', '_') + '.txt'), 'utf8'))[0]));
+  return page.model(parseVars(readFileSync(join(FIXTURES, basename(page.path).replace('.', '_') + '.txt'), 'utf8')));
 };
 const fields = (name, params, ctxData = {}) => buildOp(name, params, ctxData, securityEncode);
 const valid = (name, params, ctxData) => assert.deepEqual(validateOp(name, params, ctxData), []);
@@ -25,12 +29,23 @@ test('密码编码与原厂 cryp_new.js 一致 (向量由已对真机验证过�
   assert.notEqual(securityEncode('admin'), securityEncode('admins'));
 });
 
-test('每个操作都有标题, 纯 GET 写操作的路径都在已知集合内', () => {
+test('规范层: 每个操作都有标题和校验, 引用的页面模型都存在', () => {
   for (const [name, op] of Object.entries(OPS)) {
     assert.equal(typeof op.title, 'string', name);
-    assert.equal(typeof op.build, 'function', name);
-    if (op.ctxPage) assert.ok(PAGES[op.ctxPage], `${name} 的 ctxPage 不存在`);
+    // 不带参数的操作 (清空统计、保存配置…) 可以没有校验函数
+    assert.ok(op.validate === undefined || typeof op.validate === 'function', `${name}: validate 必须是函数`);
+    assert.equal(op.build, undefined, `${name}: 具体的编码方式不该出现在规范层`);
+    for (const key of [op.ctxPage, ...(op.refresh ?? []), op.result].filter(Boolean)) {
+      assert.ok(PAGES[key], `${name} 引用的页面模型 ${key} 不存在`);
+    }
   }
+  assert.equal(Object.keys(OPS).length, 33);
+});
+
+test('RPM 适配器: 能编码全部规范操作, 且不提供白名单以外的操作', () => {
+  assert.deepEqual(Object.keys(BUILD).sort(), Object.keys(OPS).sort());
+  for (const name of ['__proto__', 'constructor', 'toString', 'nope', 'raw']) assert.equal(supportsOp(name), false);
+  assert.throws(() => buildOp('constructor', {}, {}, securityEncode), /未知操作/);
 });
 
 test('port.settings: 批量端口配置组包为 multipart, 多端口重复 portid', () => {
@@ -76,21 +91,21 @@ test('system.reset / system.reboot: 必须明确确认', () => {
 test('ip.setting: 校验与"禁用的输入框不提交"规则', () => {
   const c = ctx('ip');
   const base = { manageVlan: 1, dhcp: false, dnsAuto: false, confirm: true };
-  valid('ip.setting', { ...base, ip: '10.0.0.239', netmask: '255.255.255.0', gateway: '10.0.0.1', dns: '10.0.0.1' }, c);
-  assert.match(invalid('ip.setting', { ...base, ip: '10.0.0.256', netmask: '255.255.255.0', gateway: '', dns: '10.0.0.1' }, c).join(), /IP 地址/);
-  assert.match(invalid('ip.setting', { ...base, ip: '10.0.0.239', netmask: '255.0.255.0', gateway: '', dns: '10.0.0.1' }, c).join(), /子网掩码/);
-  assert.match(invalid('ip.setting', { ...base, ip: '10.0.0.239', netmask: '255.255.255.0', gateway: '0.1.1.1', dns: '10.0.0.1' }, c).join(), /网关/);
-  assert.match(invalid('ip.setting', { ...base, ip: '10.0.0.239', netmask: '255.255.255.0', gateway: '', dns: '300.1.1.1' }, c).join(), /DNS/);
+  valid('ip.setting', { ...base, ip: '192.168.50.20', netmask: '255.255.255.0', gateway: '192.168.50.1', dns: '192.168.50.1' }, c);
+  assert.match(invalid('ip.setting', { ...base, ip: '10.0.0.256', netmask: '255.255.255.0', gateway: '', dns: '192.168.50.1' }, c).join(), /IP 地址/);
+  assert.match(invalid('ip.setting', { ...base, ip: '192.168.50.20', netmask: '255.0.255.0', gateway: '', dns: '192.168.50.1' }, c).join(), /子网掩码/);
+  assert.match(invalid('ip.setting', { ...base, ip: '192.168.50.20', netmask: '255.255.255.0', gateway: '0.1.1.1', dns: '192.168.50.1' }, c).join(), /网关/);
+  assert.match(invalid('ip.setting', { ...base, ip: '192.168.50.20', netmask: '255.255.255.0', gateway: '', dns: '300.1.1.1' }, c).join(), /DNS/);
   // DHCP + 自动 DNS: 不带 IP/掩码/网关/DNS 字段
   const auto = fields('ip.setting', { manageVlan: 1, dhcp: true, dnsAuto: true }, c);
   assert.deepEqual(auto.fields, [['manage_vlan', 1], ['dhcpSetting', 'enable'], ['dns_enable', 'enable'], ['token', TID]]);
-  const manual = fields('ip.setting', { ...base, ip: '10.0.0.239', netmask: '255.255.255.0', gateway: '', dns: '10.0.0.1' }, c);
-  assert.deepEqual(manual.fields, [['manage_vlan', 1], ['dhcpSetting', 'disable'], ['ip_address', '10.0.0.239'], ['ip_netmask', '255.255.255.0'], ['ip_gateway', ''], ['dns_enable', 'disable'], ['dns_addr', '10.0.0.1'], ['token', TID]]);
+  const manual = fields('ip.setting', { ...base, ip: '192.168.50.20', netmask: '255.255.255.0', gateway: '', dns: '192.168.50.1' }, c);
+  assert.deepEqual(manual.fields, [['manage_vlan', 1], ['dhcpSetting', 'disable'], ['ip_address', '192.168.50.20'], ['ip_netmask', '255.255.255.0'], ['ip_gateway', ''], ['dns_enable', 'disable'], ['dns_addr', '192.168.50.1'], ['token', TID]]);
 });
 
 test('user.account: 三次密码字段都是编码后的值, 确认密码必须一致', () => {
   const c = ctx('user');
-  const p = { username: 'lcean', oldPassword: 'old-pass-1', newPassword: 'NewPass123!', confirmPassword: 'NewPass123!' };
+  const p = { username: 'adminuser', oldPassword: 'old-pass-1', newPassword: 'NewPass123!', confirmPassword: 'NewPass123!' };
   const req = fields('user.account', p, c);
   const map = Object.fromEntries(req.fields.filter(([, v]) => v !== TID));
   assert.equal(map.txt_oldpwd, securityEncode('old-pass-1'));

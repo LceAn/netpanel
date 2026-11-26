@@ -1,0 +1,10 @@
+var portIso_conf = {
+portNum:8,
+portStr_iso:["1-8","1-8","1-8","1-8","1-8","1-8","1-8","1-8"],
+trunk_info:[0,0,0,0,0,0,0,0,],
+trunk_seq:[],
+trunkNum:0,
+selPort_seq:[1,2,3,4,5,6,7,8,],
+selPortNum:8
+};
+var tip = "";

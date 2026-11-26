@@ -1,0 +1,11 @@
+var user_ds = {
+userNameStr:[
+"admin"
+]
+};
+var tip = "";
+var userMinLenth = 1;
+var userMaxLenth = 31;
+var pwdMinLenth = 5;
+var pwdMaxLenth = 31;
+var encryptType = 0;

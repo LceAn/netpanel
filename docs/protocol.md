@@ -1,0 +1,148 @@
+# 协议：TP-LINK 旧版 Web 界面（`*Rpm.htm` 固件）
+
+本文记录 TL-SG2008D（硬件 3.0，固件 1.8.1 Build 20260401）的 Web 管理接口是怎么工作的。
+它是 `tplink-rpm` 适配器的依据，也是想帮忙核对、扩展这个适配器的人需要的全部信息。
+
+> **哪些是实测的，哪些不是**
+> - **读取**（登录、全部页面、端口明细、配置备份的格式）：在真机上核对过，并用独立脚本逐项比对过（`tools/verify_panel.py`）。
+> - **写入**（修改配置、保存、重启、还原、升级）：表单的路径、编码方式和字段是照着原厂页面里的 JS 一条条抄下来的，只在模拟交换机上跑通过，**还没有在真机上执行过**。第一次在真机上使用时，请先从无关紧要的操作开始（例如保存配置、修改一个没人用的端口），确认正常后再用其它的。
+
+## 1. 登录与会话
+
+```
+POST /logon.cgi
+Content-Type: application/x-www-form-urlencoded
+
+username=<账号>&password=<securityEncode(密码)>&isIe=&logon=登录&code=
+```
+
+- 响应体是一段 `<script>`：`var logonInfo = new Array(<代码>, 0, 0);`。代码 `0` 表示成功，`1` 用户名或密码错误，`2` 该用户不允许登录，`3` / `4` 同时登录的用户数已满，`5` 没有登录（会话无效）。
+- 成功时通过 `Set-Cookie: SessionID=…` 发会话 Cookie，之后的请求都带上它。
+- 会话**空闲 8 到 15 分钟**后会失效；同一个账号允许**多个会话并存**（面板和你自己用浏览器登录不会互相踢）。
+
+`securityEncode` 不是 MD5（原厂文件里叫 `hex_md5`），是固定密钥的异或编码：
+
+```js
+const KEY = 'RDpbLfCPsJZ7fiv';
+const ALPHA = 'yLwVl0zKqws7LgKPRQ84Mdt708T1qQ3Ha7xv3H7NyU84p21BriUWBU43odz3iP4rBL3cD02KZciXTysVXiV8ngg6vL48rPJyAUw0HurW20'
+  + 'xqxv9aYb4M9wK1Ae0wlro510qXeU07kV57fQMc8L6aLgMLwygtc0F10a0Dg70TOoouyFhdysuRMO51yY5ZlOZZLEal1h0t9YQW0Ko7oBwmCAHoic4HYbUyVeU3sfQ1xtXcPcf1aT303wAQhv66qzW';
+function securityEncode(password) {
+  let out = '';
+  const len = Math.max(password.length, KEY.length);
+  for (let i = 0; i < len; i++) {
+    const a = i < password.length ? password.charCodeAt(i) : 187;
+    const b = i < KEY.length ? KEY.charCodeAt(i) : 187;
+    out += ALPHA[(a ^ b) % ALPHA.length];
+  }
+  return out;
+}
+```
+
+校验向量：`admin` → `WaQ7xbhc9TefbwK`。
+
+## 2. 会话令牌（`g_tid`）
+
+登录后访问 `/` 得到"框架页"，里面有一段脚本声明全局变量：
+
+```js
+var g_Lan=0,g_level=1,g_year=2026,g_title='TL-SG2008D',g_product=2,g_tid=1388728877;
+```
+
+`g_tid` 就是这次会话的令牌。**所有写请求都必须带上它**（字段名 `token`），否则设备返回 `var tip = "token 错误";`。
+
+## 3. 页面格式
+
+每个功能页是一个 `*Rpm.htm`，数据全部在页面**第一个 `<script>` 里的 `var` 声明**中，是纯粹的 JS 字面量（对象、数组、字符串、数字，偶尔是 `new Array(...)`）。面板只解析这些字面量，**不求值任何代码**（`src/core/jslite.mjs`）。
+
+- 编码是 UTF-8，个别页面实际是 GBK，解码时先按 UTF-8 严格尝试、失败再按 GB18030。
+- 会话失效时任何页面都返回登录页（特征：`var logonInfo = new Array(5, …)`），据此自动重新登录。
+- 登录后访问 `/index.html` 得到的是空回复，不要访问它。
+
+| 规范模型 | 页面 | 主要变量 |
+|---|---|---|
+| `overview` | `/MainRpm.htm` | `info_ds{descriStr, macStr, firmwareStr, hardwareStr, dhcpEnable, ipStr, netmaskStr, gatewayStr, dnsEnable, dnsStr, workTime, …}`、`max_port_num`、`port_info{state[], spd_cfg[], spd_act[], fc_cfg[], fc_act[], rx_rate[], tx_rate[]}`、`support_2_5G`、`qvlan`、`qvlan_ds{…}`、`loop`、`loopPortConf{loopbackEnable, …}`、`trunk`、`trunkConf{portStr_g1[], portStr_g2[], …}`、`cloud_config`、`cloud_status`、`nms_status`、`tip` |
+| `ports` | `/PortSettingRpm.htm` | `max_port_num`、`all_info{state[], trunk_info[], spd_cfg[], spd_act[], fc_cfg[], fc_act[], …}` |
+| `stats` | `/PortStatisticsRpm.htm` | `max_port_num`、`all_info{state[], link_status[], pkts[]}`（`pkts` 每个端口 4 个数：发送正常、发送错误、接收正常、接收错误） |
+| 端口明细 | `/PortStatisticsAllRpm.htm?port=<0 起始的下标>&token=<g_tid>` | `pkts_rx_info[9]`、`pkts_tx_info[9]` |
+| `system` | `/SystemInfoRpm.htm` | `info_ds{descriStr, macStr, ipStr, netmaskStr, gatewayStr, firmwareStr, productModel, hardwareStr}`、`mngt_switch`、`support_cloud` |
+| `ip` | `/IpSettingRpm.htm` | `manage_vlan`、`vlan_type`、`ip_ds{state, ipStr, netmaskStr, gatewayStr, dnsEnable, dnsStr}` |
+| `fixIp` | `/FixIpSettingRpm.htm` | `ip_ds{state, ipStr}` |
+| `user` | `/UserAccountRpm.htm` | `user_ds{userNameStr}`、`userMinLenth`、`userMaxLenth`、`pwdMinLenth`、`pwdMaxLenth` |
+| `cloud` | `/cloud.htm` | `mngt_switch`、`cloud_type`、`tums_server`、`tums_port` |
+| `lag` | `/PortTrunkRpm.htm` | `trunk_conf{maxTrunkNum, portNum, portNumPerTrunk, portStr_g1[], portStr_g2[], lag_view[]}` |
+| `isolation` | `/PortIsolationRpm.htm` | `portIso_conf{portNum, portStr_iso[], trunk_info[], …}` |
+| `mirror` | `/PortMirrorRpm.htm` | `MirrEn`、`MirrPort`、`porttrunkid[]`、`mirr_info{ingress[], egress[]}` |
+| `loop` | `/LoopPreventionRpm.htm` | `lpEn` |
+| `cable` | `/CableDiagRpm.htm` | `maxPort`、`cablestate[]`、`cablelength[]`、`portdisableid[]` |
+| `vlan8021q` | `/Vlan8021QRpm.htm` | `qvlan_ds{state, portNum, vids[], count, maxVids, names[], tagMbrs[], untagMbrs[]}` |
+| `vlanPvid` | `/Vlan8021QPvidRpm.htm` | `pvid_ds{state, portNum, vids[], mbrs[], pvids[], …}` |
+| `vlanPort` | `/VlanPortBasicRpm.htm` | `pvlan_ds{state, portNum, vids[], count, mbrs[]}` |
+| `vlanMtu` | `/VlanMtuRpm.htm` | `mtu_ds{state, portNum, uplinkPort}` |
+| `qosBasic` | `/QosBasicRpm.htm` | `qosMode`、`portNumber`、`pPri[]`、`pTrunk[]` |
+| `qosBandwidth` | `/QosBandWidthControlRpm.htm` | `portNumber`、`portdisableid[]`、`bcInfo[]`（每个端口 3 个数：接收上限、发送上限、汇聚组） |
+| `qosStorm` | `/QosStormControlRpm.htm` | `portNumber`、`scInfo[]`（每个端口 3 个数：速率、类型掩码、汇聚组；掩码位 `1` 未知单播、`2` 组播、`4` 广播） |
+| `firmware` | `/fwupgradephase0.htm` | `upgrade_ds{current_firmwareStr, current_hardwareStr}`、`onlineUpgrade_flag`、`hasNewFirmware`、`new_firmwareStr`、`release_log`、`upgConflict` |
+
+每个页面都带一个 `tip` 变量，是设备给用户的提示文字；写操作的响应页里它就是操作结果（例如 `设置成功`）。
+
+约定：
+
+- **端口位掩码**：第 n 个口对应第 n−1 位（`0xFF` = 全部 8 个口）。原厂页面用 32 位写法，在 32 口及以上会溢出；面板用任意精度整数计算，31 口以内结果相同，**32 口及以上没有在真机上验证过**。
+- **运行时间**：`workTime` 是文本，形如 `11 day - 4 hour - 17 min - 32 sec`。
+
+## 4. 写请求
+
+写请求都发往 `.cgi`，字段名与取值逐条对应原厂页面的表单（见 `src/adapters/tplink-rpm/ops.mjs`）。三种编码方式照搬浏览器行为，因为嵌入式服务端对 `Content-Type` 的兼容性未知：
+
+| 编码 | 用在哪 |
+|---|---|
+| `application/x-www-form-urlencoded`（原厂 `<form>` 不带 `enctype`） | 保存、重启、复位、设备描述、云管理、链路聚合、端口隔离、镜像开关、MTU VLAN、端口 VLAN、802.1Q VLAN、QoS |
+| `multipart/form-data` | 端口配置、清空统计、IP 设置、固定 IP、账户、MAC 搜索、被监控端口、环回保护、线缆检测、配置备份、固件上传、配置还原 |
+| 写在 URL 查询串里（原厂用 `location.href` 提交的几个接口） | 概览页的端口快捷设置、设置 PVID，以及固件相关的几个 XHR 接口 |
+
+"保持不变"的约定：批量端口配置里 `state=7`、`flowcontrol=7`、`speed=8` 表示这一项不改。
+
+写操作的响应是对应页面的 HTML，`tip` 里是结果。MAC 搜索和线缆检测的响应页本身就是结果页（分别是 `mac_ds{macNum, mac_info[]}` 与 `cablestate[]` / `cablelength[]`）。
+
+### 多步流程
+
+| 流程 | 请求 |
+|---|---|
+| 配置备份 | `POST config_back.cgi`（multipart：`btnBackup`、`token`）→ 响应体就是配置文件（二进制）。拿到 HTML 说明出错 |
+| 配置还原 | `POST conf_restore.cgi?token=<g_tid>`（multipart，请求体里只有文件，字段名 `configfile`）。**还原后设备会重启** |
+| 重启 | `POST reboot.cgi`（form：`saveConf=on` 可选、`apply=重启`、`reboot_op=reboot`、`save_op`、`token`）。设备随即断开连接 |
+| 在线检查新版本 | `POST check_new_version_start.cgi`，然后每秒 `POST check_new_version.cgi`，响应体为 `2` 表示还在检查，否则结束；之后读 `/fwupgradephase0.htm` |
+| 升级前检查冲突 | `POST upgradeConflict.cgi`，响应文本里 `value` 之后第一个 `0` / `1` 表示是否已有升级在进行（**响应格式没法在不真正升级的前提下确认**） |
+| 本地升级 | `POST httpupg.cgi?cmd=fw_upgrade&token=<g_tid>`（multipart，文件字段名 `firmware`） |
+| 在线升级 | `POST upgrade_online.cgi?token=<g_tid>` |
+| 升级进度 | `POST upgradeStatusCheck.cgi`，响应体 `1` 失败、`0` 完成、其它表示进行中；设备写完固件会自行重启并断开连接 |
+
+## 5. 传输上的坑
+
+这些都是在真机上遇到过的，适配器里都有对应的处理：
+
+- **连接偶尔被直接断开**（尤其是读页面的时候）。适配器把同一连接上的请求串行化，只对**读**请求自动重试（150 / 400 / 900 / 1800 毫秒后），写请求绝不盲目重发——重复提交一次"修改 IP"的后果比失败严重得多。
+- 会话空闲超时短。面板常驻轮询（默认 15 秒）顺带保活了会话；失效后靠"响应是登录页"自动重新登录。
+- 写操作可能很慢（保存配置要等 FLASH）：写超时 30 秒，固件上传 10 分钟，读 10 秒。
+- 超时或断开时操作**可能已经生效**，面板会把它报告为"结果未知，请刷新后确认"，而不是当成失败。
+
+## 6. 自己核对
+
+`tools/` 里是逆向时用到的几个 Python 小脚本（只用标准库，全部**只读**）：
+
+```bash
+export SW_BASE=http://192.168.1.1 SW_USER=admin SW_PASS='…'
+python tools/sw.py show /MainRpm.htm            # 登录交换机, 抓取并打印某个页面
+python tools/sw.py save out/ /MainRpm.htm /PortSettingRpm.htm …   # 抓取并存成文件
+python tools/enc.py admin                        # 密码编码 (和原厂页面实际发送的值对照)
+python -I tools/extract.py out/ MainRpm          # 从存下来的页面里提取: 数据块、表单、控件、提交函数
+python -I tools/options.py out/ QosBasic         # 列出页面里每个下拉框的全部选项
+python tools/session_timeout.py                  # 测量会话空闲多久过期、同一账号能否多会话并存
+```
+
+`SW_BASE`、`SW_USER`、`SW_PASS` 只从环境变量读，不落盘。要核对面板读出来的数据和原厂页面是否一致（只读）：
+
+```bash
+export PANEL_USER=admin PANEL_PASS='…'           # 面板自己的账号
+python tools/verify_panel.py                     # 面板里只绑定了一台设备时不用再指定; 多台时用 PANEL_DEVICE=<名称>
+```

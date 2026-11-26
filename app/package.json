@@ -1,14 +1,33 @@
 {
-  "name": "switch-panel",
-  "version": "1.0.0",
-  "description": "TP-LINK TL-SG2008D 交换机的现代化 Web 管理面板 (替代原厂页面)",
+  "name": "netpanel",
+  "version": "2.0.0",
+  "description": "局域网交换机的本地 Web 管理面板：多设备、现代界面、Prometheus 指标导出与命令行。已实测 TP-LINK TL-SG2008D（旧版 Web 界面固件）。",
   "private": true,
   "type": "module",
+  "bin": {
+    "switchctl": "bin/switchctl.mjs"
+  },
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "switchctl": "node bin/switchctl.mjs",
+    "mock": "node scripts/mock-switch.mjs",
+    "mock:json": "node scripts/mock-json-switch.mjs"
   },
   "engines": {
     "node": ">=20"
+  },
+  "keywords": [
+    "switch",
+    "tplink",
+    "network",
+    "prometheus",
+    "homelab",
+    "web-ui"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LceAn/netpanel.git",
+    "directory": "app"
   }
 }

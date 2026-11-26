@@ -1,0 +1,7 @@
+var selState = new Array(0,0,0,0,0,0,0,0);
+var trunk_info = new Array("", " (LAG1)", " (LAG2)");
+var pTrunk = new Array(0,0,0,0,0,0,0,0);
+var pPri = new Array(1,1,1,1,1,1,1,1);
+var portNumber = 8;
+var qosMode = 0;
+var tip = "";

@@ -2,7 +2,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { isolatedPairs, parseRanges, portRanges, rate, rateShort, uptime } from '../public/js/labels.js';
+import { isolatedPairs, parseRanges, portRanges, rate, rateShort, uptime } from '../web/js/labels.js';
 
 const forwardAll = (n) => Array.from({ length: n }, (_, i) => ({ port: i + 1, lag: 0, forward: `1-${n}` }));
 

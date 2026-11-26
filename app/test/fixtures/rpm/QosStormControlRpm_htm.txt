@@ -1,0 +1,14 @@
+var selState = new Array(0,0,0,0,0,0,0,0);
+var trunk_info = new Array("", " (LAG1)", " (LAG2)");
+var portNumber = 8;
+var scInfo = new Array(
+0,0,0,
+0,0,0,
+0,0,0,
+0,0,0,
+0,0,0,
+0,0,0,
+0,0,0,
+0,0,0,
+0);
+var tip = "";

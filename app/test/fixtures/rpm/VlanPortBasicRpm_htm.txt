@@ -1,0 +1,17 @@
+var pvlan_ds = {
+state:0,
+portNum:8,
+vids:[
+
+],
+count:0,
+mbrs:[
+
+],
+lagIds:[
+0,0,0,0,0,0,0,0
+],
+lagMbrs:[
+0,0x0,0x0
+]
+};var tip = "";

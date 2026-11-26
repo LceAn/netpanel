@@ -1,0 +1,6 @@
+var maxPort=8;
+var cablestate=[-1,-1,-1,-1,-1,-1,-1,-1,0];
+var cablelength=[-1,-1,-1,-1,-1,-1,-1,-1,0];
+var port_type=[0,0,0,0,0,0,0,0,0];
+var portdisableid = [0,256,256,256,256,256,256,256,256,0]
+var tip = "";
