@@ -50,7 +50,7 @@ test('RPM 适配器: 能编码全部规范操作, 且不提供白名单以外的
 
 // 原厂页面里每个写表单的提交方式 (逐个核对过抓下来的原厂页面, 见 docs/protocol.md)。
 // 没写 method 的 <form> 浏览器一律用 GET 提交, 字段在查询串里 —— 哪怕它写了 enctype=multipart/form-data。
-// 这张表就是"面板发给交换机的方式必须和浏览器一致"的契约: 2.0.0 之前有 20 个操作被错发成 POST, 在真机上不工作。
+// 这张表就是"面板发给交换机的方式必须和浏览器一致"的契约: 2.0.0 把其中 22 个操作错发成 POST (外加配置备份), 在真机上不工作。
 const STOCK_GET = new Set([
   'port.quick', 'port.settings', 'port.stats.clear', 'system.description', 'ip.setting', 'ip.fix', 'user.account',
   'lag.set', 'lag.delete', 'isolation.set', 'mac.search', 'mirror.enable', 'mirror.ports', 'loop.set', 'cable.run',
