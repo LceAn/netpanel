@@ -48,10 +48,49 @@ test('RPM 适配器: 能编码全部规范操作, 且不提供白名单以外的
   assert.throws(() => buildOp('constructor', {}, {}, securityEncode), /未知操作/);
 });
 
-test('port.settings: 批量端口配置组包为 multipart, 多端口重复 portid', () => {
+// 原厂页面里每个写表单的提交方式 (逐个核对过抓下来的原厂页面, 见 docs/protocol.md)。
+// 没写 method 的 <form> 浏览器一律用 GET 提交, 字段在查询串里 —— 哪怕它写了 enctype=multipart/form-data。
+// 这张表就是"面板发给交换机的方式必须和浏览器一致"的契约: 2.0.0 之前有 20 个操作被错发成 POST, 在真机上不工作。
+const STOCK_GET = new Set([
+  'port.quick', 'port.settings', 'port.stats.clear', 'system.description', 'ip.setting', 'ip.fix', 'user.account',
+  'lag.set', 'lag.delete', 'isolation.set', 'mac.search', 'mirror.enable', 'mirror.ports', 'loop.set', 'cable.run',
+  'vlan.mtu.enable', 'vlan.mtu.uplink', 'vlan.port.enable', 'vlan.port.set', 'vlan.port.delete',
+  'vlan.q.enable', 'vlan.q.set', 'vlan.q.delete', 'vlan.pvid.set',
+]);
+const STOCK_POST_FORM = new Set(['system.reboot', 'system.reset', 'config.save', 'cloud.setting', 'cloud.nms', 'qos.mode', 'qos.priority', 'qos.bandwidth', 'qos.storm']);
+
+test('提交方式与原厂页面一致: 没写 method 的表单都是 GET 查询串, 只有少数表单是 POST', () => {
+  const sample = {
+    'port.quick': [{ port: 1, speed: 1 }, ctx('overview')], 'port.settings': [{ ports: [1], state: 1, speed: 1, flow: 0 }, ctx('ports')],
+    'system.description': [{ description: 'x' }, { cloudManaged: false }], 'ip.setting': [{ manageVlan: 1, dhcp: true, dnsAuto: true }, ctx('ip')],
+    'ip.fix': [{ enabled: true }, ctx('fixIp')], 'user.account': [{ username: 'u', oldPassword: 'old-pass-1', newPassword: 'NewPass123!', confirmPassword: 'NewPass123!' }, ctx('user')],
+    'cloud.setting': [{ enabled: false, type: 'cloud', confirm: true }, ctx('cloud')], 'cloud.nms': [{ server: 'nms.example.com', port: 60445 }, ctx('cloud')],
+    'lag.set': [{ group: 1, ports: [1, 2] }, ctx('lag')], 'lag.delete': [{ groups: [1] }, ctx('lag')], 'isolation.set': [{ ports: [1], from: [2] }, ctx('isolation')],
+    'mac.search': [{ mac: 'aa:bb:cc:dd:ee:ff', vid: '' }, {}], 'mirror.enable': [{ enabled: false, port: 1 }, ctx('mirror')], 'mirror.ports': [{ ports: [1], ingress: 1, egress: 0 }, ctx('mirror')],
+    'loop.set': [{ enabled: false }, {}], 'cable.run': [{ ports: [1] }, ctx('cable')], 'vlan.mtu.enable': [{ enabled: false, confirm: true }, ctx('vlanMtu')],
+    'vlan.mtu.uplink': [{ port: 1 }, ctx('vlanMtu')], 'vlan.port.enable': [{ enabled: false, confirm: true }, ctx('vlanPort')],
+    'vlan.port.set': [{ vid: 2, ports: [1] }, ctx('vlanPort')], 'vlan.port.delete': [{ vids: [2] }, ctx('vlanPort')],
+    'vlan.q.enable': [{ enabled: true, confirm: true }, ctx('vlan8021q')], 'vlan.q.set': [{ vid: 10, name: 'a', untagged: [1] }, ctx('vlan8021q')],
+    'vlan.q.delete': [{ vids: [10] }, ctx('vlan8021q')], 'vlan.pvid.set': [{ pvid: 1, ports: [1] }, ctx('vlanPvid')],
+    'system.reboot': [{ save: true, confirm: true }, {}], 'system.reset': [{ confirm: true, confirmText: 'RESET' }, {}], 'config.save': [{}, {}],
+    'qos.mode': [{ mode: 0 }, ctx('qosBasic')], 'qos.priority': [{ ports: [1], queue: 0 }, ctx('qosBasic')],
+    'qos.bandwidth': [{ ports: [1], ingress: 0, egress: 0 }, ctx('qosBandwidth')], 'qos.storm': [{ ports: [1], enabled: false, rate: 0, types: [] }, ctx('qosStorm')],
+    'port.stats.clear': [{}, {}],
+  };
+  assert.deepEqual([...STOCK_GET, ...STOCK_POST_FORM].sort(), Object.keys(OPS).sort(), '每个操作都要在这张表里');
+  for (const name of Object.keys(OPS)) {
+    const req = buildOp(name, sample[name][0], sample[name][1], securityEncode);
+    const how = STOCK_GET.has(name) ? ['GET', 'query'] : ['POST', 'form'];
+    assert.deepEqual([req.method, req.send], how, `${name} 的提交方式与原厂页面不一致`);
+    assert.ok(req.fields.some(([k]) => k === 'token'), `${name}: 必须带 token (字段顺序以原厂表单为准)`);
+    if (how[0] === 'GET') assert.ok(req.fields.every(([, v]) => typeof v === 'string' || typeof v === 'number' || v === TID), `${name}: 查询串里只能放标量`);
+  }
+});
+
+test('port.settings: 批量端口配置按原厂表单用 GET 提交, 多端口重复 portid', () => {
   const c = ctx('ports');
   const req = fields('port.settings', { ports: [3, 1], state: 1, speed: 6, flow: 7 }, c);
-  assert.equal(req.send, 'multipart');
+  assert.deepEqual([req.method, req.send], ['GET', 'query']);
   assert.deepEqual(req.fields, [['portid', 3], ['portid', 1], ['state', 1], ['speed', 6], ['flowcontrol', 7], ['apply', '应用'], ['token', TID]]);
   valid('port.settings', { ports: [1], state: 7, speed: 8, flow: 7 }, c);
   assert.match(invalid('port.settings', { ports: [], state: 1, speed: 6, flow: 7 }, c).join(), /有效端口/);
@@ -84,7 +123,10 @@ test('system.reset / system.reboot: 必须明确确认', () => {
   valid('system.reset', { confirm: true, confirmText: 'RESET' });
   assert.match(invalid('system.reboot', { save: true }).join(), /明确确认/);
   const req = fields('system.reboot', { save: true, confirm: true });
-  assert.deepEqual(req.fields, [['saveConf', 'on'], ['apply', '重启'], ['reboot_op', 'reboot'], ['save_op', 'true'], ['token', TID]]);
+  // 原厂表单里只有这三个字段; "保存配置"复选框 (saveConf) 和重启按钮都在 <form> 之外, 浏览器不会提交它们
+  assert.deepEqual(req.fields, [['reboot_op', 'reboot'], ['save_op', 'true'], ['token', TID]]);
+  assert.equal(fields('system.reboot', { save: false, confirm: true }).fields[1][1], 'false');
+  assert.deepEqual(fields('system.reset', { confirm: true, confirmText: 'RESET' }).fields, [['reset_op', 'factory'], ['token', TID]]);
   assert.equal(req.expectDisconnect, true);
 });
 

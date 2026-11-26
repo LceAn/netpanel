@@ -57,3 +57,7 @@ PANEL_PORT=8210 node server.mjs              # 在 8210 端口起一个开发用
 ## 帮忙验证实验性适配器
 
 `tplink-json` 适配器（新版 Web 界面的 JetStream 交换机）还没有在真机上验证过。如果你有这样的设备，验证步骤见 [docs/adapters.md](docs/adapters.md#你可以帮忙验证)——只需要读操作，没有任何风险。
+
+## 许可证
+
+项目采用 [MIT 许可证](LICENSE)。提交 Pull Request，即表示你同意自己的贡献以同样的许可证授权。

@@ -18,6 +18,12 @@ tools/*.session.json
 # 调研用的第三方源码，仅本地保留，不入库
 _ref/
 
+# 从交换机上抓下来的原厂页面 (含真实设备的 MAC / IP / 账号)、下载的官方固件、真机的配置备份：仅本地保留，不入库
+# 想看某个版本的原厂页面, 用 tools/sw.py save 自己抓 (见 docs/protocol.md)
+_stock/
+_fw/
+backups/
+
 # 本地 AI 助手工作目录
 .zcode/
 .workbuddy/

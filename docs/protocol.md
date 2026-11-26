@@ -4,8 +4,9 @@
 它是 `tplink-rpm` 适配器的依据，也是想帮忙核对、扩展这个适配器的人需要的全部信息。
 
 > **哪些是实测的，哪些不是**
-> - **读取**（登录、全部页面、端口明细、配置备份的格式）：在真机上核对过，并用独立脚本逐项比对过（`tools/verify_panel.py`）。
-> - **写入**（修改配置、保存、重启、还原、升级）：表单的路径、编码方式和字段是照着原厂页面里的 JS 一条条抄下来的，只在模拟交换机上跑通过，**还没有在真机上执行过**。第一次在真机上使用时，请先从无关紧要的操作开始（例如保存配置、修改一个没人用的端口），确认正常后再用其它的。
+> - **读取**（登录、全部页面、端口明细、配置备份）：在真机上核对过，并用独立脚本逐项比对过（`tools/verify_panel.py`）。
+> - **写入的格式**：原厂页面里的 37 个表单逐个核对过（`tools/forms.py`）。其中下面标 ✔ 的操作在真机上用不改变配置的方式执行过（把当前值原样再提交一遍、建一个临时 VLAN 再删掉、清空统计），设备回答 `操作成功`，执行前后 22 个页面的数据完全一致。
+> - **没有在真机上执行过的**：保存配置、重启、恢复出厂、还原配置、升级固件、改 IP、改账户、改云管理——它们会改变设备的状态。请求格式和实测过的操作出自同一类表单，但第一次在真机上使用时仍请先备份配置，并从无关紧要的操作开始。
 
 ## 1. 登录与会话
 
@@ -83,7 +84,7 @@ var g_Lan=0,g_level=1,g_year=2026,g_title='TL-SG2008D',g_product=2,g_tid=1388728
 | `qosStorm` | `/QosStormControlRpm.htm` | `portNumber`、`scInfo[]`（每个端口 3 个数：速率、类型掩码、汇聚组；掩码位 `1` 未知单播、`2` 组播、`4` 广播） |
 | `firmware` | `/fwupgradephase0.htm` | `upgrade_ds{current_firmwareStr, current_hardwareStr}`、`onlineUpgrade_flag`、`hasNewFirmware`、`new_firmwareStr`、`release_log`、`upgConflict` |
 
-每个页面都带一个 `tip` 变量，是设备给用户的提示文字；写操作的响应页里它就是操作结果（例如 `设置成功`）。
+每个页面都带一个 `tip` 变量，是设备给用户的提示文字；写操作的响应页里它就是操作结果（成功时是 `操作成功`，真机实测）。
 
 约定：
 
@@ -92,35 +93,46 @@ var g_Lan=0,g_level=1,g_year=2026,g_title='TL-SG2008D',g_product=2,g_tid=1388728
 
 ## 4. 写请求
 
-写请求都发往 `.cgi`，字段名与取值逐条对应原厂页面的表单（见 `src/adapters/tplink-rpm/ops.mjs`）。三种编码方式照搬浏览器行为，因为嵌入式服务端对 `Content-Type` 的兼容性未知：
+写请求都发往 `.cgi`，字段名与取值逐条对应原厂页面的表单（见 `src/adapters/tplink-rpm/ops.mjs`）。
 
-| 编码 | 用在哪 |
-|---|---|
-| `application/x-www-form-urlencoded`（原厂 `<form>` 不带 `enctype`） | 保存、重启、复位、设备描述、云管理、链路聚合、端口隔离、镜像开关、MTU VLAN、端口 VLAN、802.1Q VLAN、QoS |
-| `multipart/form-data` | 端口配置、清空统计、IP 设置、固定 IP、账户、MAC 搜索、被监控端口、环回保护、线缆检测、配置备份、固件上传、配置还原 |
-| 写在 URL 查询串里（原厂用 `location.href` 提交的几个接口） | 概览页的端口快捷设置、设置 PVID，以及固件相关的几个 XHR 接口 |
+**提交方式必须和原厂页面完全一致。** 嵌入式服务端的 CGI 只按它预期的方式取参数，用别的方式发，交换机**直接断开连接**，什么也不回（真机实测：用 POST 请求备份接口就是这样）。怎么判断某个接口该用什么方式？看原厂页面里对应的 `<form>`，照"浏览器会怎么提交它"来发：
+
+| 原厂页面的写法 | 浏览器的提交方式 | 接口 |
+|---|---|---|
+| `<form>` 没写 `method`（其中不少写了 `enctype=multipart/form-data`，但它对 GET 不起作用） | **GET**，全部字段（包括 `token`）在查询串里 | 端口配置、端口快捷设置、清空统计、设备描述、IP 设置、固定 IP、账户、链路聚合（设置 / 删除）、端口隔离、MAC 搜索、镜像开关、被监控端口、环回保护、线缆检测、802.1Q VLAN（开关 / 设置 / 删除）、设置 PVID、MTU VLAN（开关 / 上联口）、端口 VLAN（开关 / 设置 / 删除）、配置备份 |
+| `<form method=post>` | POST，`application/x-www-form-urlencoded`，字段在请求体里 | 保存配置、重启、恢复出厂、云管理开关、NMS 服务器、QoS 模式 / 端口优先级 / 限速 / 风暴抑制 |
+| `<form method=post enctype=multipart/form-data>` | POST，`multipart/form-data` | 配置还原、固件上传 |
+| 页面脚本用 `XMLHttpRequest` 提交 | POST，请求体是空的，`token` 在查询串里 | 固件相关的 5 个接口（见"多步流程"） |
+| 页面脚本用 `location.href` 提交 | GET，查询串 | 设置 PVID（`vlanPvidSet.cgi?pbm=…&pvid=…&token=…`） |
+
+- 查询串按浏览器提交表单的规则编码（`application/x-www-form-urlencoded` 的序列化：空格是 `+`，中文按 UTF-8 百分号编码）。VLAN 名、设备描述里会有空格，不能用会把空格编成 `%20` 的编码方式。
+- 在真机上实测过的操作（都是"把当前值原样再提交一遍"，设备回答 `操作成功`）：✔ 端口快捷设置　✔ 端口配置（保持不变）　✔ 清空统计　✔ 环回保护　✔ QoS 模式　✔ 设置 PVID　✔ 802.1Q VLAN 的添加和删除　✔ MAC 搜索　✔ 线缆检测　✔ 配置备份　✔ 在线检查新版本　✔ 升级前检查冲突。
+- 写操作成功时，响应是对应功能页的页首数据（`Content-Type: text/html`，`Connection: close`），`tip` 是 `操作成功`。例如提交 `port_setting.cgi` 后返回的是 `PortSettingRpm` 页面的变量。
+- MAC 搜索和线缆检测的响应页本身就是结果页：前者是 `mac_ds{macNum, mac_info[]}`，**没搜到时 `tip` 是 `未找到MAC地址`，`macNum` 为 0 但仍带一条占位记录 `{mac:"0", vid:0, port:0}`**（真实的条数要看 `macNum`）；后者是 `cablestate[]` / `cablelength[]`。
 
 "保持不变"的约定：批量端口配置里 `state=7`、`flowcontrol=7`、`speed=8` 表示这一项不改。
 
-写操作的响应是对应页面的 HTML，`tip` 里是结果。MAC 搜索和线缆检测的响应页本身就是结果页（分别是 `mac_ds{macNum, mac_info[]}` 与 `cablestate[]` / `cablelength[]`）。
-
 ### 多步流程
 
-| 流程 | 请求 |
-|---|---|
-| 配置备份 | `POST config_back.cgi`（multipart：`btnBackup`、`token`）→ 响应体就是配置文件（二进制）。拿到 HTML 说明出错 |
-| 配置还原 | `POST conf_restore.cgi?token=<g_tid>`（multipart，请求体里只有文件，字段名 `configfile`）。**还原后设备会重启** |
-| 重启 | `POST reboot.cgi`（form：`saveConf=on` 可选、`apply=重启`、`reboot_op=reboot`、`save_op`、`token`）。设备随即断开连接 |
-| 在线检查新版本 | `POST check_new_version_start.cgi`，然后每秒 `POST check_new_version.cgi`，响应体为 `2` 表示还在检查，否则结束；之后读 `/fwupgradephase0.htm` |
-| 升级前检查冲突 | `POST upgradeConflict.cgi`，响应文本里 `value` 之后第一个 `0` / `1` 表示是否已有升级在进行（**响应格式没法在不真正升级的前提下确认**） |
-| 本地升级 | `POST httpupg.cgi?cmd=fw_upgrade&token=<g_tid>`（multipart，文件字段名 `firmware`） |
-| 在线升级 | `POST upgrade_online.cgi?token=<g_tid>` |
-| 升级进度 | `POST upgradeStatusCheck.cgi`，响应体 `1` 失败、`0` 完成、其它表示进行中；设备写完固件会自行重启并断开连接 |
+| 流程 | 请求 | 真机 |
+|---|---|---|
+| 配置备份 | `GET config_back.cgi?btnBackup=…&token=<g_tid>` → 响应体就是配置文件（二进制，约 2.7 KB）。响应头 `Content-Type: application/octet-stream; name=config.cfg`、`Content-Disposition: attachment; filename=config.cfg`。拿到 HTML 说明出错 | ✔ 实测 |
+| 配置还原 | `POST conf_restore.cgi?token=<g_tid>`（multipart，请求体里只有文件，字段名 `configfile`；`token` 是页面脚本拼到 action 上的）。原厂页面提示还原后需要等待设备重启 | 未执行 |
+| 重启 | `POST reboot.cgi`（表单编码：`reboot_op=reboot`、`save_op=true\|false`、`token`）。表单里只有这三个字段——按钮和"保存配置"复选框在 `<form>` 之外，由页面脚本把复选框的状态写进 `save_op` | 未执行 |
+| 恢复出厂 | `POST reset.cgi`（表单编码：`reset_op=factory`、`token`） | 未执行 |
+| 在线检查新版本 | `POST check_new_version_start.cgi?token=<g_tid>`（空请求体），之后每秒 `POST check_new_version.cgi?token=<g_tid>`，响应体为 `2` 表示还在检查，否则结束；然后读 `/fwupgradephase0.htm` | ✔ 实测 |
+| 升级前检查冲突 | `POST upgradeConflict.cgi?token=<g_tid>`。真机返回 `<!DOCTYPE html> <htm> <div id="confFlag" value="0"></div> </htm> <div id=confFlag value=0> </div>`：`value` 之后第一个 `0` / `1` 表示是否已有升级在进行（同一个标志写了带引号、不带引号两遍，标签名还写成了 `htm`） | ✔ 实测（值为 0） |
+| 本地升级 | `POST httpupg.cgi?cmd=fw_upgrade&token=<g_tid>`（multipart，文件字段名 `firmware`） | 未执行 |
+| 在线升级 | `POST upgrade_online.cgi?token=<g_tid>` | 未执行 |
+| 升级进度 | `POST upgradeStatusCheck.cgi?token=<g_tid>`，响应体 `1` 失败、`0` 完成、其它表示进行中；设备写完固件会自行重启并断开连接 | 未执行 |
+
+仓库里的模拟交换机（`app/scripts/mock-switch.mjs`）照上面这些实测结果实现：提交方式不对就断开连接，成功时回答 `操作成功`，返回对应的页面。`app/test/mock.test.mjs` 把适配器的每个写操作逐个打到它上面。
 
 ## 5. 传输上的坑
 
 这些都是在真机上遇到过的，适配器里都有对应的处理：
 
+- **提交方式不对，交换机直接断开连接。** 2.0.0 及之前的版本把"没写 `method` 的表单"当成 POST 发送，在真机上这些操作全部不会生效（面板显示"结果未知"）。读取不受影响。
 - **连接偶尔被直接断开**（尤其是读页面的时候）。适配器把同一连接上的请求串行化，只对**读**请求自动重试（150 / 400 / 900 / 1800 毫秒后），写请求绝不盲目重发——重复提交一次"修改 IP"的后果比失败严重得多。
 - 会话空闲超时短。面板常驻轮询（默认 15 秒）顺带保活了会话；失效后靠"响应是登录页"自动重新登录。
 - 写操作可能很慢（保存配置要等 FLASH）：写超时 30 秒，固件上传 10 分钟，读 10 秒。
@@ -137,6 +149,7 @@ python tools/sw.py save out/ /MainRpm.htm /PortSettingRpm.htm …   # 抓取并�
 python tools/enc.py admin                        # 密码编码 (和原厂页面实际发送的值对照)
 python -I tools/extract.py out/ MainRpm          # 从存下来的页面里提取: 数据块、表单、控件、提交函数
 python -I tools/options.py out/ QosBasic         # 列出页面里每个下拉框的全部选项
+python -I tools/forms.py out/ out/js/            # 每个表单的提交方式 (GET 查询串 / POST 表单 / POST multipart) 和字段, 以及页面脚本自己提交的接口
 python tools/session_timeout.py                  # 测量会话空闲多久过期、同一账号能否多会话并存
 ```
 

@@ -106,7 +106,7 @@ export class RpmClient {
   #httpOnce(pathWithQuery, { method = 'GET', body, contentType, timeout } = {}) {
     return new Promise((resolve, reject) => {
       const headers = {
-        'User-Agent': 'Mozilla/5.0 (switch-panel)',
+        'User-Agent': 'Mozilla/5.0 (netpanel)',
         Accept: '*/*',
         Referer: this.#baseUrl.href,
       };
@@ -335,11 +335,14 @@ function encodeRequest(spec, tid) {
   const value = (v) => String(v === TID ? tid : v);
   let path = spec.path;
   if (spec.send === 'query') {
-    const qs = (spec.fields ?? []).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(value(v))}`).join('&');
+    // 与浏览器提交 GET 表单时完全一致: application/x-www-form-urlencoded 的序列化规则
+    // (空格 → "+", 非 ASCII 和特殊字符百分号编码)。VLAN 名、设备描述里会有空格, 不能用 encodeURIComponent (它把空格编成 %20)
+    const qs = new URLSearchParams();
+    for (const [k, v] of spec.fields ?? []) qs.append(k, value(v));
     path += `?${qs}`;
   }
   if (!spec.file && spec.send !== 'multipart') {
-    if (spec.send === 'query') return { path, contentType: spec.contentType }; // 空请求体 (原厂用 XHR.send() 提交的那几个接口)
+    if (spec.send === 'query') return { path, contentType: spec.contentType }; // 没有请求体 (GET 表单, 以及原厂用 XHR.send() 提交的那几个接口)
     const form = new URLSearchParams();
     for (const [k, v] of spec.fields) form.append(k, value(v));
     return { path, body: Buffer.from(String(form)), contentType: 'application/x-www-form-urlencoded' };

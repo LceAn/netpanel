@@ -77,6 +77,57 @@ const KNOWN_MACS = {
   'AA:BB:CC:DD:EE:02': { vid: 30, port: 7 },
 };
 
+/**
+ * 每个接口预期的提交方式 —— 照原厂页面里对应的表单 (逐个核对过, 见 docs/protocol.md):
+ *   get        GET, 参数在查询串里                  原厂 <form> 没写 method (浏览器默认用 GET 提交)
+ *   form       POST, 表单编码的请求体                原厂 <form method=post>
+ *   multipart  POST, multipart 请求体                原厂 <form method=post enctype=multipart/form-data>
+ *   xhr        POST, 空请求体, token 在查询串里       原厂用 XHR 提交的固件接口
+ * 交换机只按它预期的方式取参数, 用别的方式发它直接断开连接 (真机实测: 用 POST 请求备份接口就是这样)。
+ */
+const SUBMIT = {
+  main_info_port_status_set: 'get', port_setting: 'get', port_statistics_set: 'get', system_name_set: 'get',
+  ip_setting: 'get', fix_ip_setting: 'get', usr_account_set: 'get', port_trunk_set: 'get', port_trunk_display: 'get',
+  port_isolation_set: 'get', mac_address_search: 'get', mirror_enabled_set: 'get', mirrored_port_set: 'get',
+  loop_prevention_set: 'get', cable_diag_get: 'get', config_back: 'get', vlanPvidSet: 'get',
+  mtuVlanSet: 'get', pvlanSet: 'get', qvlanSet: 'get',
+  savingconfig: 'form', reboot: 'form', reset: 'form', cloud: 'form', tumscloud: 'form',
+  qos_mode_set: 'form', qos_port_priority_set: 'form', qos_bandwidth_set: 'form', qos_storm_set: 'form',
+  conf_restore: 'multipart', httpupg: 'multipart',
+  check_new_version_start: 'xhr', check_new_version: 'xhr', upgradeConflict: 'xhr', upgrade_online: 'xhr', upgradeStatusCheck: 'xhr',
+};
+
+/** 写操作成功后, 真机返回的是对应的功能页 (页首数据 + tip = "操作成功"); 实测过的有 ✔。 */
+const RESULT_PAGE = {
+  main_info_port_status_set: 'MainRpm', // ✔
+  port_setting: 'PortSettingRpm', // ✔
+  port_statistics_set: 'PortStatisticsRpm', // ✔
+  system_name_set: 'SystemInfoRpm',
+  ip_setting: 'IpSettingRpm',
+  fix_ip_setting: 'FixIpSettingRpm',
+  usr_account_set: 'UserAccountRpm',
+  cloud: 'cloud',
+  tumscloud: 'cloud',
+  port_trunk_set: 'PortTrunkRpm',
+  port_trunk_display: 'PortTrunkRpm',
+  port_isolation_set: 'PortIsolationRpm',
+  mirror_enabled_set: 'PortMirrorRpm',
+  mirrored_port_set: 'PortMirrorRpm',
+  loop_prevention_set: 'LoopPreventionRpm', // ✔
+  vlanPvidSet: 'Vlan8021QPvidRpm', // ✔
+  mtuVlanSet: 'VlanMtuRpm',
+  pvlanSet: 'VlanPortBasicRpm',
+  qvlanSet: 'Vlan8021QRpm', // ✔
+  savingconfig: 'SavingConfigRpm',
+  qos_mode_set: 'QosBasicRpm', // ✔
+  qos_port_priority_set: 'QosBasicRpm',
+  qos_bandwidth_set: 'QosBandWidthControlRpm',
+  qos_storm_set: 'QosStormControlRpm',
+};
+
+/** 真机对写请求的响应: HTML, 并关闭连接。 */
+const HTML_HEADERS = { 'Content-Type': 'text/html', Connection: 'close' };
+
 export class MockSwitch {
   /**
    * @param {{ user?: string, password?: string, variant?: number, profile?: string, newFirmware?: boolean, log?: Function }} opts
@@ -357,7 +408,8 @@ export class MockSwitch {
         this.V('QosBasicRpm').qosMode = Number(one('rd_qosmode'));
         break;
       case 'qos_port_priority_set.cgi':
-        for (const p of selected) this.V('QosBasicRpm').pPri[p - 1] = Number(one('port_queue'));
+        // 表单里的 port_queue 是 0-3, 页面里的 pPri 是 1-4 (原厂 do_check: port_queue.value = pPri - 1)
+        for (const p of selected) this.V('QosBasicRpm').pPri[p - 1] = Number(one('port_queue')) + 1;
         break;
       case 'qos_bandwidth_set.cgi':
         for (const p of selected) this.#setBandwidth(p, Number(one('igrRate')), Number(one('egrRate')));
@@ -467,9 +519,9 @@ export class MockSwitch {
     if (path === 'mac_address_search.cgi') {
       const mac = String(one('txt_macAddress_search') ?? '').toUpperCase();
       const hit = KNOWN_MACS[mac];
-      // 与原厂格式一致: 没搜到时 macNum 为 0, 但仍带一条占位记录
-      const entry = hit ? `{mac:"${mac}", vid:${hit.vid}, port:${hit.port}}` : '{mac:"0", vid:0, port:0}';
-      return `<script>\nvar mac_ds = {\nis_qvlan:1,\nmacNum:${hit ? 1 : 0},\nmac_info:[\n${entry}\n]\n};var tip = "";\n</script>\n`;
+      // 与真机一致 (实测): 没搜到时 tip 是 "未找到MAC地址", macNum 为 0, 但仍带一条占位记录
+      const entry = hit ? `{mac:"${mac}", vid:${hit.vid}, port:${hit.port}}` : '{mac:"0",vid:0,port:0}';
+      return `<script>\nvar tip = "${hit ? '操作成功' : '未找到MAC地址'}";\nvar mac_ds = {is_qvlan:1, mac_info:[\n${entry}\n], macNum:${hit ? 1 : 0}};\n</script>\n`;
     }
     if (path === 'cable_diag_get.cgi') {
       const c = this.V('CableDiagRpm');
@@ -479,7 +531,7 @@ export class MockSwitch {
         c.cablestate[port - 1] = port % 2 === 0 ? 1 : 2; // 偶数口线缆正常, 奇数口开路
         c.cablelength[port - 1] = port % 2 === 0 ? 3 + port : 5 + port;
       }
-      return this.page('CableDiagRpm');
+      return this.page('CableDiagRpm', '操作成功'); // 真机 (实测): 返回线缆检测页, tip 是 "操作成功"
     }
     return null;
   }
@@ -539,20 +591,30 @@ export class MockSwitch {
       return res.end(`<script>\nvar g_Lan=0,g_level=1,g_year=2026,g_title='${title}',g_product=2,g_tid=${tid};\nvar menuNoMng = 0;\nvar g_hasNewFirmware=${this.V('fwupgradephase0').hasNewFirmware};\n</script>\n`);
     }
 
-    // ── 写请求: 必须带本次会话的 token ──
+    // ── 写请求: 必须带本次会话的 token, 且必须按原厂表单的方式提交 ──
     if (path.endsWith('.cgi')) {
+      const name = path.replace(/\.cgi$/, '');
+      const type = String(req.headers['content-type'] ?? '');
+      const submit = req.method === 'GET' ? 'get'
+        : type.startsWith('multipart/form-data') ? 'multipart'
+          : type.startsWith('application/x-www-form-urlencoded') && chunks.length ? 'form' : 'xhr';
       const query = [...url.searchParams].filter(([k]) => k !== 'token');
       const fields = parseBody(req, chunks);
       const token = url.searchParams.get('token') ?? fields.find(([k]) => k === 'token')?.[1];
-      const record = { method: req.method, path, query, fields: fields.filter(([k]) => k !== 'token') };
+      // fields 统一记"提交上来的字段" (GET 在查询串里, POST 在请求体里), 测试按名字取值就行
+      const record = { method: req.method, path, submit, query, fields: [...query, ...fields.filter(([k]) => k !== 'token')] };
       this.writes.push(record);
       if (this.writes.length > 200) this.writes.shift();
-      this.log(`[write] ${req.method} /${path}`, record.query.map((x) => x.join('=')).join(' '), '|', req.headers['content-type']?.split(';')[0] ?? '-', '|', show(record.fields));
+      this.log(`[write] ${req.method} /${path}`, record.fields.map((x) => `${x[0]}=${Buffer.isBuffer(x[1]) ? `<文件 ${x[1].length} 字节>` : x[1]}`).join(' '), '|', type.split(';')[0] || '-');
+      if (SUBMIT[name] !== submit) {
+        this.log(`        ↳ 提交方式不对 (这个接口要 ${SUBMIT[name] ?? '?'}, 收到的是 ${submit}), 已断开连接`);
+        return req.socket.destroy();
+      }
       if (token !== tid) {
         this.log('        ↳ token 不匹配, 已拒绝');
-        return res.end(TIP_ONLY('token 错误'));
+        return res.writeHead(200, HTML_HEADERS).end(TIP_ONLY('token 错误'));
       }
-      const all = [...query, ...fields.map(([k, v]) => [k, Buffer.isBuffer(v) ? v : String(v)])];
+      const all = record.fields.map(([k, v]) => [k, Buffer.isBuffer(v) ? v : String(v)]);
 
       if (path === 'reboot.cgi' || path === 'reset.cgi') {
         if (path === 'reset.cgi') this.reset();
@@ -561,16 +623,17 @@ export class MockSwitch {
         return req.socket.destroy();
       }
       if (path === 'config_back.cgi') {
+        // 与真机一致的响应头
         const body = Buffer.from(BACKUP_MAGIC + this.#snapshot());
         this.log(`        ↳ 返回配置备份 ${body.length} 字节`);
-        return res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename=config.bin' }).end(body);
+        return res.writeHead(200, { 'Content-Type': 'application/octet-stream; name=config.cfg', 'Content-Disposition': 'attachment; filename=config.cfg', 'Content-Length': body.length, Connection: 'close', Pragma: 'no-cache' }).end(body);
       }
       if (path === 'conf_restore.cgi') {
         const file = fields.find(([k]) => k === 'configfile')?.[1];
         const error = file?.length ? this.#restore(file) : '没有收到配置文件';
-        if (!error) this.offlineUntil = now + REBOOT_MS; // 与原厂一致: 还原后设备重启
+        if (!error) this.offlineUntil = now + REBOOT_MS; // 真机上未验证; 按原厂页面"还原后需要等待设备重启"的说法实现
         this.log('        ↳ 还原', file ? `${file.length} 字节` : '没有文件', error ?? '成功, 设备重启');
-        if (error) return res.end(TIP_ONLY(error));
+        if (error) return res.writeHead(200, HTML_HEADERS).end(TIP_ONLY(error));
         this.sessions.clear();
         return req.socket.destroy();
       }
@@ -586,7 +649,11 @@ export class MockSwitch {
         else Object.assign(fw, { hasNewFirmware: '0', new_firmwareStr: '', release_log: '' });
         return res.end('0');
       }
-      if (path === 'upgradeConflict.cgi') return res.end('{"error_code":0,"result":{"value":0}}'); // "value" 后第一个 0/1 = 是否已有升级在进行
+      if (path === 'upgradeConflict.cgi') {
+        // 真机的返回 (实测), 连写错的标签名 (htm) 和重复的那一段都照抄; 解析时取 "value" 之后第一个 0/1 = 是否已有升级在进行
+        const flag = this.V('fwupgradephase0').upgConflict === '1' ? 1 : 0;
+        return res.writeHead(200, HTML_HEADERS).end(`<!DOCTYPE html>\n<htm>\n<div id="confFlag" value="${flag}"></div>\n</htm>\n<div id=confFlag value=${flag}>\n</div>\n`);
+      }
       if (path === 'upgradeStatusCheck.cgi') {
         if (!this.upgrade || this.upgrade.done) return res.end('0'); // 0 = 完成
         if (this.upgrade.failed) return res.end('1'); // 1 = 失败
@@ -610,13 +677,14 @@ export class MockSwitch {
       const error = this.#apply(path, all);
       if (error) {
         this.log('        ↳ 拒绝:', error);
-        return res.end(TIP_ONLY(error));
+        return res.writeHead(200, HTML_HEADERS).end(TIP_ONLY(error));
       }
       const result = this.#resultPage(path, all);
-      if (result) return res.end(result);
-      // 与推测的真机行为一致: 写操作返回对应页面, 并带上 tip 提示
+      if (result) return res.writeHead(200, HTML_HEADERS).end(result);
+      // 与真机一致 (实测): 写操作返回对应的功能页, tip 是 "操作成功"
       this.#liveOverview(now);
-      return res.end(this.page('MainRpm', '设置成功'));
+      this.#liveStats(now);
+      return res.writeHead(200, HTML_HEADERS).end(this.page(RESULT_PAGE[name] ?? 'MainRpm', '操作成功'));
     }
 
     // ── 只读页面 ──

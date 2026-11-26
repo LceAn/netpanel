@@ -74,8 +74,9 @@ function create({ url, credentials, options = {} }) {
   // ── 固件: 原厂用 XHR 提交的几个接口 (空请求体, token 在查询串里) ──────────────────
   const tinyPost = (path) => client.sendRaw({ path, method: 'POST', send: 'query', fields: [['token', TID]], contentType: 'application/x-www-form-urlencoded' });
 
-  /** 原厂 JS 取响应里 "value" 之后第 7 个字符当冲突标志 (1 = 已有升级在进行)。
-   *  响应格式没法在不真正升级的前提下确认, 所以按 "value 之后出现的第一个 0/1" 来认。 */
+  /** 冲突标志在响应的 id="confFlag" 的 value 里 (1 = 已有升级在进行)。真机的返回 (实测) 是:
+   *  <!DOCTYPE html> <htm> <div id="confFlag" value="0"></div> </htm> <div id=confFlag value=0> </div>
+   *  —— 带引号和不带引号的写法各出现一次 (标签名还写成了 htm), 所以按 "value 之后出现的第一个 0/1" 来认。 */
   const parseConflict = (text) => {
     const at = text.indexOf('value');
     return (at >= 0 ? text.slice(at + 6) : text).slice(0, 16).replace(/^[^01]+/, '').startsWith('1');
@@ -122,7 +123,9 @@ function create({ url, credentials, options = {} }) {
     logout: () => client.logout(),
 
     async backup() {
-      const result = await client.sendRaw({ path: 'config_back.cgi', method: 'POST', send: 'multipart', fields: [['btnBackup', '配置备份'], ['token', TID]] });
+      // 原厂的备份表单没写 method → 浏览器用 GET 提交 (btnBackup 和 token 在查询串里), 响应体就是配置文件。
+      // 用 POST 请求这个接口, 交换机会直接断开连接 (真机实测)
+      const result = await client.sendRaw({ path: 'config_back.cgi', method: 'GET', send: 'query', fields: [['btnBackup', '配置备份'], ['token', TID]] });
       // 配置文件是二进制; 拿到 HTML 说明交换机返回的是出错提示页
       if (result.body.length === 0 || /^\s*</.test(result.body.subarray(0, 200).toString('latin1'))) {
         throw new SwitchError(result.tip || '交换机没有返回配置文件', 'BAD_RESPONSE');

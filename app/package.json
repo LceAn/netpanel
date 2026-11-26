@@ -1,8 +1,9 @@
 {
   "name": "netpanel",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "局域网交换机的本地 Web 管理面板：多设备、现代界面、Prometheus 指标导出与命令行。已实测 TP-LINK TL-SG2008D（旧版 Web 界面固件）。",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "bin": {
     "switchctl": "bin/switchctl.mjs"
